@@ -500,6 +500,9 @@
   "setup.default.agent.grok": {
     "label": "Grok"
   },
+  "setup.default.agent.grok-bot": {
+    "label": "Grok Bot"
+  },
   "setup.default.agent.hermes": {
     "label": "Hermes"
   },

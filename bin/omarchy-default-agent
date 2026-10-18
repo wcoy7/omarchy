@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # omarchy:summary=Set and launch the default coding agent
-# omarchy:args=[pi|omp|opencode|ori|claude|codex|grok|openclaw|agy|hermes|copilot|crush|cursor-agent|muse|kimi]
+# omarchy:args=[pi|omp|opencode|ori|claude|codex|grok|grok-bot|openclaw|agy|hermes|copilot|crush|cursor-agent|muse|kimi]
 # omarchy:examples=omarchy default agent | omarchy default agent codex | omarchy default agent claude
 
 installing=false
@@ -32,6 +32,7 @@ claude | claude-code) agent="claude"; name="Claude Code" ;;
 codex) agent="codex"; name="Codex" ;;
 crush) agent="crush"; name="Crush" ;;
 grok) agent="grok"; name="Grok" ;;
+grok-bot) agent="grok-bot"; name="Grok Bot"; agent_pacman="grok-bot" ;;
 openclaw) agent="openclaw"; name="OpenClaw"; agent_installer="omarchy-install-openclaw-cli" ;;
 agy | antigravity | antigravity-cli | gemini | gemini-cli) agent="agy"; name="Antigravity"; agent_package="antigravity-cli" ;;
 hermes) agent="hermes"; name="Hermes"; agent_installer="omarchy-install-hermes-cli" ;;
@@ -40,7 +41,7 @@ muse | muse-code | musecode) agent="muse"; name="Muse Code" ;;
 cursor | cursor-agent) agent="cursor-agent"; name="Cursor CLI" ;;
 kimi | kimi-code) agent="kimi"; name="Kimi"; agent_package="npm:@moonshot-ai/kimi-code" ;;
 *)
-  echo "Usage: omarchy-default-agent <pi|omp|opencode|ori|claude|codex|grok|openclaw|agy|hermes|copilot|crush|cursor-agent|muse|kimi>"
+  echo "Usage: omarchy-default-agent <pi|omp|opencode|ori|claude|codex|grok|grok-bot|openclaw|agy|hermes|copilot|crush|cursor-agent|muse|kimi>"
   exit 1
   ;;
 esac
@@ -51,7 +52,8 @@ agent_package=${agent_package:-$agent}
 # the user's home, Hermes the desktop app's and OpenClaw the one its Control
 # UI updates. Each has its own installer with the same --check/--now contract
 # mise-backed agents get from mise; see omarchy-install-hermes-cli and
-# omarchy-install-openclaw-cli.
+# omarchy-install-openclaw-cli. Grok Bot is the packaged desktop app, not the
+# mise `grok` CLI: the package Install > AI installs is the whole agent.
 if [[ -n ${agent_installer:-} ]]; then
   # Not omarchy-cmd-present: a command on PATH says nothing about whether the
   # install behind it finished or runs the sessions omarchy-agent starts.
@@ -59,6 +61,9 @@ if [[ -n ${agent_installer:-} ]]; then
   # minutes-long install inside the menu action instead.
   agent_present() { "$agent_installer" --check; }
   agent_install() { "$agent_installer" --now; }
+elif [[ -n ${agent_pacman:-} ]]; then
+  agent_present() { omarchy-pkg-present "$agent_pacman"; }
+  agent_install() { omarchy-pkg-add "$agent_pacman"; }
 else
   # Anything at the wrapper's path other than the wrapper is the user's own
   # install, such as the symlink Cursor's installer leaves. A mise copy would
@@ -86,7 +91,7 @@ if [[ $installing == "false" ]] && ! agent_present; then
 fi
 
 if ! agent_install; then
-  if [[ $installing == "true" && -n ${agent_installer:-} ]]; then
+  if [[ $installing == "true" && ( -n ${agent_installer:-} || -n ${agent_pacman:-} ) ]]; then
     echo "Could not install $name" >&2
   elif [[ $installing == "true" ]]; then
     echo "Could not install $name with mise" >&2

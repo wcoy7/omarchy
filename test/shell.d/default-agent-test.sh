@@ -1005,3 +1005,130 @@ for agent in cursor-agent muse; do
   rm "$test_home/.local/bin/$agent"
 done
 pass "agent launcher runs user-installed Cursor and Muse ahead of native lazy shims"
+
+# Grok Bot is the desktop package, not the mise `grok` CLI. Choosing it installs
+# that package and opens the window; a terminal launch would sit behind the app.
+cat >"$mock_bin/omarchy-pkg-present" <<'SH'
+#!/bin/bash
+[[ $1 == "grok-bot" && ${OMARCHY_TEST_GROK_BOT_INSTALLED:-false} == "true" ]]
+SH
+cat >"$mock_bin/omarchy-pkg-add" <<'SH'
+#!/bin/bash
+printf '%s\n' "$*" >>"$OMARCHY_TEST_STUB_LOG"
+[[ ${OMARCHY_TEST_PKG_ADD_FAIL:-false} != "true" ]]
+SH
+cat >"$mock_bin/omarchy-launch-or-focus" <<'SH'
+#!/bin/bash
+printf '%s\0' "$@" >"$OMARCHY_TEST_AGENT_LAUNCH_LOG"
+SH
+chmod +x "$mock_bin/omarchy-pkg-present" "$mock_bin/omarchy-pkg-add" \
+  "$mock_bin/omarchy-launch-or-focus"
+hash -r
+
+: >"$launch_log"
+: >"$terminal_log"
+: >"$mise_history"
+: >"$stub_log"
+: >"$inline_log"
+OMARCHY_TEST_GROK_BOT_INSTALLED=true omarchy-default-agent grok-bot
+read -r chosen <"$agent_file"
+[[ $chosen == grok-bot ]] || fail "choosing Grok Bot records it as the default agent"
+mapfile -d '' -t launch_args <"$launch_log"
+[[ ${#launch_args[@]} == 2 &&
+  ${launch_args[0]} == 'grok[- ]?bot' &&
+  ${launch_args[1]} == 'uwsm-app -- gtk-launch grok-bot >/dev/null 2>&1 &' ]] ||
+  fail "choosing Grok Bot opens its window" "argv: ${launch_args[*]}"
+[[ ! -s $terminal_log ]] || fail "an installed Grok Bot needs no install terminal"
+! grep -q grok-bot "$mise_history" || fail "Grok Bot never installs through mise"
+grep -Fx "grok-bot" "$stub_log" >/dev/null || fail "choosing an installed Grok Bot still confirms the package"
+pass "choosing Grok Bot uses its package and opens the window"
+
+printf '%s\n' pi >"$agent_file"
+: >"$terminal_log"
+: >"$launch_log"
+: >"$stub_log"
+OMARCHY_TEST_GROK_BOT_INSTALLED=false omarchy-default-agent grok-bot
+mapfile -d '' -t terminal_args <"$terminal_log"
+[[ ${terminal_args[*]} == "omarchy-default-agent --install grok-bot" ]] ||
+  fail "a missing Grok Bot routes through the install terminal"
+[[ $(<"$agent_file") == "pi" ]] || fail "a missing Grok Bot waits to change the selection"
+[[ ! -s $launch_log && ! -s $stub_log ]] || fail "a missing Grok Bot waits to install and open"
+pass "a missing Grok Bot routes through the install terminal"
+
+: >"$stub_log"
+: >"$launch_log"
+: >"$inline_log"
+: >"$mise_history"
+OMARCHY_TEST_GROK_BOT_INSTALLED=false omarchy-default-agent --install grok-bot >/dev/null
+grep -Fx "grok-bot" "$stub_log" >/dev/null || fail "installing Grok Bot as default agent installs the package"
+[[ $(omarchy-default-agent) == "grok-bot" ]] || fail "installing Grok Bot records the selection"
+mapfile -d '' -t launch_args <"$launch_log"
+[[ ${#launch_args[@]} == 2 && ${launch_args[0]} == 'grok[- ]?bot' ]] ||
+  fail "installing Grok Bot opens its window from the install terminal"
+[[ ! -s $inline_log ]] || fail "installing Grok Bot does not run a CLI in the terminal"
+! grep -q grok-bot "$mise_history" || fail "installing Grok Bot does not touch mise"
+pass "installing Grok Bot as default agent installs the package and opens the window"
+
+printf '%s\n' pi >"$agent_file"
+: >"$launch_log"
+: >"$stub_log"
+if OMARCHY_TEST_PKG_ADD_FAIL=true omarchy-default-agent --install grok-bot >"$test_tmp/grok-bot-install-failure" 2>&1; then
+  fail "a failed Grok Bot install is rejected"
+fi
+[[ $(omarchy-default-agent) == "pi" ]] || fail "a failed Grok Bot install preserves the current default"
+grep -F "Could not install Grok Bot" "$test_tmp/grok-bot-install-failure" >/dev/null ||
+  fail "a failed Grok Bot install names the app"
+! grep -F "with mise" "$test_tmp/grok-bot-install-failure" ||
+  fail "a failed Grok Bot install is not reported as a mise failure"
+[[ ! -s $launch_log ]] || fail "a failed Grok Bot install does not open the window"
+pass "a failed Grok Bot install preserves the selection"
+
+printf '%s\n' grok-bot >"$agent_file"
+: >"$launch_log"
+omarchy-agent
+mapfile -d '' -t launch_args <"$launch_log"
+[[ ${#launch_args[@]} == 2 &&
+  ${launch_args[1]} == 'uwsm-app -- gtk-launch grok-bot >/dev/null 2>&1 &' ]] ||
+  fail "the agent keybinding opens the Grok Bot window"
+: >"$launch_log"
+: >"$inline_log"
+omarchy-agent --inline
+mapfile -d '' -t launch_args <"$launch_log"
+[[ ${#launch_args[@]} == 2 && ${launch_args[0]} == 'grok[- ]?bot' ]] ||
+  fail "the inline alias opens the Grok Bot window"
+[[ ! -s $inline_log ]] || fail "the inline alias does not run Grok Bot in the terminal"
+: >"$launch_log"
+omarchy-agent-prompt "Review this project"
+mapfile -d '' -t launch_args <"$launch_log"
+[[ ${#launch_args[@]} == 2 && ${launch_args[*]} != *Review* ]] ||
+  fail "a prompted Grok Bot launch opens the window without a prompt flag" "argv: ${launch_args[*]}"
+pass "Grok Bot launches as a window from the keybinding, the inline alias, and a prompt"
+
+# The recorded launch command has to return. A foreground GUI would hold the
+# install terminal open until the app quit.
+cat >"$mock_bin/hyprctl" <<'SH'
+#!/bin/bash
+[[ $1 == "clients" ]] && printf '[]\n'
+SH
+cat >"$mock_bin/uwsm-app" <<'SH'
+#!/bin/bash
+printf '%s\n' "$*" >>"$OMARCHY_TEST_STUB_LOG"
+sleep 30
+SH
+chmod +x "$mock_bin/hyprctl" "$mock_bin/uwsm-app"
+hash -r
+rm -f "$mock_bin/omarchy-launch-or-focus"
+hash -r
+: >"$stub_log"
+if ! timeout 3 "$ROOT/bin/omarchy-launch-or-focus" 'grok[- ]?bot' 'uwsm-app -- gtk-launch grok-bot >/dev/null 2>&1 &'; then
+  pkill -f "$mock_bin/uwsm-app" 2>/dev/null || true
+  fail "Grok Bot's launch command returns while the app starts"
+fi
+for _ in {1..50}; do
+  grep -F "gtk-launch grok-bot" "$stub_log" >/dev/null && break
+  sleep 0.05
+done
+pkill -f "$mock_bin/uwsm-app" 2>/dev/null || true
+grep -F "gtk-launch grok-bot" "$stub_log" >/dev/null ||
+  fail "Grok Bot's launch command starts the desktop entry"
+pass "Grok Bot's launch command returns while the app starts"

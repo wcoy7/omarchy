@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# omarchy:summary=Launch the default coding agent in a terminal
+# omarchy:summary=Launch the default coding agent
 # omarchy:args=[--inline] [--pick]
 # omarchy:examples=omarchy agent | omarchy agent --inline
 
@@ -81,6 +81,13 @@ claude)
 grok)
   command=(grok --permission-mode bypassPermissions)
   [[ -n ${prompt:-} ]] && command+=(-- "$prompt")
+  ;;
+grok-bot)
+  # The desktop app, not the `grok` CLI. It has no terminal session and no
+  # flag for an initial prompt, so a prompted launch still just opens the
+  # window. The launch command is backgrounded: omarchy-launch-or-focus execs
+  # it, and a foreground GUI would keep the install terminal open until quit.
+  windowed=true
   ;;
 openclaw)
   # The launcher owns onboarding and the gateway dance: OpenClaw's terminal UI
@@ -173,6 +180,12 @@ if [[ -n $home_env ]]; then
     [[ -n $home ]] && account_env+=("$home_env=$home")
     command=("${account_env[@]}" "${command[@]}")
   fi
+fi
+
+if [[ ${windowed:-false} == "true" ]]; then
+  # Class is the desktop id or the product name "Grok Bot". gtk-launch is what
+  # Install > AI uses, and a running Electron instance focuses itself.
+  exec omarchy-launch-or-focus 'grok[- ]?bot' 'uwsm-app -- gtk-launch grok-bot >/dev/null 2>&1 &'
 fi
 
 if [[ $inline == "true" ]]; then
